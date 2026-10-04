@@ -1,0 +1,6 @@
+name = "eww-standup-wheel"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
