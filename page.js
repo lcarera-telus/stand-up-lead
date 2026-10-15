@@ -37,7 +37,7 @@ export const PAGE = `<!doctype html>
   .next-card .top > div { flex:1; }
   .next-card .x { background:none; border:0; color:rgba(255,255,255,.75); padding:2px 6px; font-size:16px; }
   .next-card .x:hover { color:#fff; }
-  canvas { width:min(78vh, 100%); max-width:640px; aspect-ratio:1; cursor:pointer; filter:drop-shadow(0 12px 30px rgba(0,0,0,.5)); }
+  #wheel { width:min(78vh, 100%); max-width:640px; aspect-ratio:1; cursor:pointer; filter:drop-shadow(0 12px 30px rgba(0,0,0,.5)); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
   .panel h2 { margin:0 0 12px; font-size:16px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
   form { display:flex; gap:8px; }
@@ -57,11 +57,15 @@ export const PAGE = `<!doctype html>
   .today { font-size:14px; color:var(--muted); margin-bottom:8px; }
   .today b { color:var(--text); font-size:18px; }
   .err { color:#ff7b6b; font-size:13px; margin-top:6px; min-height:1em; }
-  dialog { border:0; border-radius:16px; padding:28px 36px; background:var(--panel); color:var(--text); text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  /* The dialog fills the screen so the confetti canvas can sit behind the card. */
+  dialog { border:0; padding:0; margin:0; width:100vw; height:100vh; max-width:none; max-height:none; background:transparent; color:var(--text); overflow:hidden; }
+  dialog[open] { display:grid; place-items:center; }
   dialog::backdrop { background:rgba(0,0,0,.6); }
+  dialog .card { position:relative; z-index:1; border-radius:16px; padding:28px 36px; margin:16px; background:var(--panel); text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.6); }
   dialog .big { font-size:34px; font-weight:700; color:var(--accent); margin:8px 0 18px; }
   dialog .row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
   dialog .replace { color:#f6a93b; margin:-6px 0 16px; }
+  #confetti { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
 </style>
 </head>
 <body>
@@ -75,6 +79,7 @@ export const PAGE = `<!doctype html>
       <label for="spinDate">Spinning for</label>
       <input type="date" id="spinDate">
       <button class="ghost" id="nextDayBtn" type="button" title="Next standup day (Mon–Thu)">Next standup</button>
+      <button class="ghost" id="soundBtn" type="button" title="Turn the wheel sound on or off"></button>
       <div class="spin-status" id="spinStatus"></div>
     </div>
     <canvas id="wheel" width="1000" height="1000" aria-label="Wheel"></canvas>
@@ -106,6 +111,8 @@ export const PAGE = `<!doctype html>
 </main>
 
 <dialog id="winner">
+  <canvas id="confetti" aria-hidden="true"></canvas>
+  <div class="card">
   <div id="winnerWhen"></div>
   <div class="big" id="winnerName"></div>
   <div class="replace" id="winnerReplace" hidden></div>
@@ -114,6 +121,7 @@ export const PAGE = `<!doctype html>
     <button id="replaceBtn" hidden>Replace</button>
     <button class="ghost" id="cancelBtn" hidden>Keep current</button>
     <button class="ghost" id="respinBtn">Spin again</button>
+  </div>
   </div>
 </dialog>
 
@@ -235,6 +243,113 @@ export const PAGE = `<!doctype html>
     ctx.lineWidth = 4; ctx.strokeStyle = "#7a160c"; ctx.stroke();
   }
 
+  // Sound is synthesized with the Web Audio API, so the page needs no audio files.
+  var audio = null;
+  var soundOn = true;
+  try { soundOn = localStorage.getItem("wheelSound") !== "off"; } catch (e) {}
+
+  function audioCtx() {
+    if (!soundOn) return null;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audio) audio = new AC();
+    if (audio.state === "suspended") audio.resume();
+    return audio;
+  }
+
+  function tone(freq, type, startAt, length, volume) {
+    var a = audioCtx();
+    if (!a) return;
+    var osc = a.createOscillator();
+    var gain = a.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(volume, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + length);
+    osc.connect(gain);
+    gain.connect(a.destination);
+    osc.start(startAt);
+    osc.stop(startAt + length + 0.02);
+  }
+
+  function playTick() {
+    var a = audioCtx();
+    if (a) tone(1400, "square", a.currentTime, 0.035, 0.08);
+  }
+
+  function playWin() {
+    var a = audioCtx();
+    if (!a) return;
+    var notes = [523.25, 659.25, 783.99, 1046.5];
+    for (var i = 0; i < notes.length; i++) {
+      tone(notes[i], "triangle", a.currentTime + i * 0.11, i === notes.length - 1 ? 0.6 : 0.18, 0.25);
+    }
+  }
+
+  function renderSoundBtn() {
+    document.getElementById("soundBtn").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
+  }
+
+  // Index of the segment under the pointer (angle 0) for a given rotation.
+  function segmentAt(rot, count) {
+    var TAU = Math.PI * 2;
+    var a = ((-rot % TAU) + TAU) % TAU;
+    return Math.floor(a / (TAU / count)) % count;
+  }
+
+  // The confetti canvas lives inside the dialog, so it draws in the top layer above the backdrop.
+  var confettiRun = 0;
+  function confetti() {
+    if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var cv = document.getElementById("confetti");
+    var c = cv.getContext("2d");
+    var dpr = window.devicePixelRatio || 1;
+    var W = cv.clientWidth, H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var run = ++confettiRun;
+    var parts = [];
+    // Burst from the centre, behind the card, with most pieces going up.
+    for (var i = 0; i < 200; i++) {
+      var ang = -90 + (Math.random() - 0.5) * 300;
+      var speed = 8 + Math.random() * 12;
+      parts.push({
+        x: W / 2 + (Math.random() - 0.5) * 120, y: H / 2,
+        vx: Math.cos(ang * Math.PI / 180) * speed,
+        vy: Math.sin(ang * Math.PI / 180) * speed,
+        w: 6 + Math.random() * 6, h: 8 + Math.random() * 8,
+        rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3,
+        color: COLORS[i % COLORS.length]
+      });
+    }
+    var t0 = performance.now();
+    function frame(now) {
+      if (run !== confettiRun) return;
+      var t = (now - t0) / 1000;
+      c.clearRect(0, 0, W, H);
+      c.globalAlpha = Math.max(0, Math.min(1, 4 - t));
+      for (var j = 0; j < parts.length; j++) {
+        var p = parts[j];
+        p.vy += 0.25; p.vx *= 0.99; p.vy *= 0.99;
+        p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        c.save();
+        c.translate(p.x, p.y);
+        c.rotate(p.rot);
+        c.scale(1, Math.cos(p.rot * 3));
+        c.fillStyle = p.color;
+        c.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        c.restore();
+      }
+      if (t < 4) requestAnimationFrame(frame); else c.clearRect(0, 0, W, H);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function showWinner() {
+    document.getElementById("winner").showModal();
+    confetti();
+  }
+
   function spin() {
     var list = entries();
     if (spinning || list.length === 0) return;
@@ -250,15 +365,20 @@ export const PAGE = `<!doctype html>
     var end = base + TAU * (6 + Math.floor(Math.random() * 3));
     if (end <= rotation) end += TAU;
     var from = rotation, dur = 5200, t0 = performance.now();
+    var lastSeg = segmentAt(rotation, list.length);
+    audioCtx(); // Unlock audio inside the click or key gesture.
 
     function frame(now) {
       var t = Math.min(1, (now - t0) / dur);
       var e = 1 - Math.pow(1 - t, 4);
       rotation = from + (end - from) * e;
       draw();
+      var s = segmentAt(rotation, list.length);
+      if (s !== lastSeg) { lastSeg = s; playTick(); }
       if (t < 1) { requestAnimationFrame(frame); return; }
       rotation = rotation % TAU;
       spinning = false;
+      playWin();
       choose(list[winnerIdx]);
     }
     requestAnimationFrame(frame);
@@ -284,12 +404,12 @@ export const PAGE = `<!doctype html>
       note.textContent = current.name + " already leads this standup. Replace?";
       document.getElementById("cancelBtn").textContent = "Keep " + current.name;
       pending = { date: date, member: member };
-      document.getElementById("winner").showModal();
+      showWinner();
       return;
     }
     pending = null;
     save(date, member)
-      .then(function () { document.getElementById("winner").showModal(); })
+      .then(showWinner)
       .catch(function (e) { showErr(e.message); });
   }
 
@@ -437,6 +557,12 @@ export const PAGE = `<!doctype html>
     pending = null;
     document.getElementById("winner").close();
   });
+  document.getElementById("soundBtn").addEventListener("click", function () {
+    soundOn = !soundOn;
+    try { localStorage.setItem("wheelSound", soundOn ? "on" : "off"); } catch (e) {}
+    renderSoundBtn();
+    if (soundOn) playTick();
+  });
   dateInput.addEventListener("change", renderSpinStatus);
   document.getElementById("nextDayBtn").addEventListener("click", function () {
     dateInput.value = nextStandupDay(todayISO());
@@ -450,6 +576,7 @@ export const PAGE = `<!doctype html>
 
   // The team spins at the end of a standup, so default to the next standup day.
   dateInput.value = nextStandupDay(todayISO());
+  renderSoundBtn();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   refresh();
 })();
