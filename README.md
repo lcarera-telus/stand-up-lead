@@ -6,15 +6,21 @@ The app runs on [Gizmos](https://gizmos.run) at <https://eww-standup-wheel.telus
 
 ## How the wheel picks a leader
 
-The wheel uses a strict rotation:
+The wheel gives everyone a slice sized by how far behind the top leader they are:
 
-1. The wheel shows only the people who have led the fewest standups.
-2. Everyone leads once before anyone leads again.
-3. When a new round starts, the wheel leaves out the previous leader. Nobody leads two standups in a row.
-4. A re-spin for a date that already has a leader does not count that leader's lead for that date.
-5. The draw uses `crypto.getRandomValues`.
+```
+weight = (max led count - your led count) + 1
+slice  = your weight / sum of all weights
+```
 
-Uncheck a person in the Team list to leave them off the wheel for that day. Their count does not change, so they stay in the round.
+1. Everyone has a base weight of 1. Each lead fewer than the top person adds 1 more.
+2. On day 0 everyone has the same weight, so the slices are equal.
+3. When someone leads, their slice shrinks and everyone else's slice grows.
+4. The previous leader is left off the wheel for the next spin. Nobody leads two standups in a row.
+5. A re-spin for a date that already has a leader does not count that leader's lead for that date.
+6. The draw uses `crypto.getRandomValues`, weighted by slice size.
+
+Uncheck a person in the Team list to leave them off the wheel for that day. Their count does not change.
 
 The logic is in `entries()` in `page.js`.
 
