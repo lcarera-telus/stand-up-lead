@@ -180,8 +180,8 @@ export const PAGE = `<!doctype html>
     });
   }
 
-  // Strict rotation: only people with the fewest leads go on the wheel,
-  // so everyone leads once before anyone repeats.
+  // Weighted wheel: weight = (max leads - your leads) + 1, and the slice is weight / total.
+  // People who have led less get bigger slices.
   function entries() {
     var pool = members.filter(function (m) { return !excluded[m.id]; });
     if (pool.length === 0) return pool;
@@ -189,15 +189,31 @@ export const PAGE = `<!doctype html>
     // A re-spin must not count the leader it may replace.
     var current = date ? leaderOn(date) : null;
     function leads(m) { return m.led_count - (current && current.member_id === m.id ? 1 : 0); }
-    var min = Math.min.apply(null, pool.map(leads));
-    var round = pool.filter(function (m) { return leads(m) === min; });
-    // When a new round starts, skip the previous leader so nobody leads twice in a row.
+    var max = Math.max.apply(null, pool.map(leads));
+    var list = pool.map(function (m) {
+      return { id: m.id, name: m.name, leads: leads(m), weight: max - leads(m) + 1 };
+    });
+    // Skip the previous leader so nobody leads twice in a row.
     var prev = standups.filter(function (r) { return r.date < date; })
       .sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
-    if (prev && round.length > 1) {
-      round = round.filter(function (m) { return m.id !== prev.member_id; });
+    if (prev && list.length > 1) {
+      list = list.filter(function (e) { return e.id !== prev.member_id; });
     }
-    return round;
+    return list;
+  }
+
+  function totalWeight(list) {
+    return list.reduce(function (sum, e) { return sum + e.weight; }, 0);
+  }
+
+  // Start angle of each slice plus the end of the last one, starting at 0.
+  function sliceAngles(list) {
+    var total = totalWeight(list), acc = 0, out = [0];
+    for (var i = 0; i < list.length; i++) {
+      acc += list[i].weight;
+      out.push((acc / total) * Math.PI * 2);
+    }
+    return out;
   }
 
   function randomInt(n) {
@@ -219,9 +235,10 @@ export const PAGE = `<!doctype html>
       return;
     }
 
-    var seg = (Math.PI * 2) / list.length;
+    var angles = sliceAngles(list);
     for (var i = 0; i < list.length; i++) {
-      var start = rotation + i * seg;
+      var start = rotation + angles[i];
+      var seg = angles[i + 1] - angles[i];
       var color = COLORS[i % COLORS.length];
       // Avoid two equal colors next to each other when the wheel wraps around.
       if (i === list.length - 1 && i % COLORS.length === 0 && i > 0) color = COLORS[2];
@@ -239,7 +256,8 @@ export const PAGE = `<!doctype html>
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       ctx.fillStyle = DARK_TEXT[color] ? "#2a1a12" : "#fff3ea";
-      var size = Math.max(18, Math.min(44, 520 / list.length + 14));
+      // Keep the label inside its slice; thin slices get smaller text.
+      var size = Math.max(14, Math.min(44, 520 / list.length + 14, seg * (R - 30) * 0.75));
       ctx.font = "500 " + size + "px Quicksand";
       var label = list[i].name;
       var maxW = R - 140;
@@ -312,11 +330,22 @@ export const PAGE = `<!doctype html>
     document.getElementById("soundBtn").textContent = soundOn ? "🔊 Sound on" : "🔇 Sound off";
   }
 
-  // Index of the segment under the pointer (angle 0) for a given rotation.
-  function segmentAt(rot, count) {
+  // Index of the slice under the pointer (angle 0) for a given rotation.
+  function segmentAt(rot, angles) {
     var TAU = Math.PI * 2;
     var a = ((-rot % TAU) + TAU) % TAU;
-    return Math.floor(a / (TAU / count)) % count;
+    for (var i = 0; i < angles.length - 2; i++) if (a < angles[i + 1]) return i;
+    return angles.length - 2;
+  }
+
+  // Weights are whole numbers, so a uniform draw over the total picks a slice by its weight.
+  function weightedPick(list) {
+    var r = randomInt(totalWeight(list));
+    for (var i = 0; i < list.length; i++) {
+      r -= list[i].weight;
+      if (r < 0) return i;
+    }
+    return list.length - 1;
   }
 
   // The confetti canvas lives inside the dialog, so it draws in the top layer above the backdrop.
@@ -377,17 +406,18 @@ export const PAGE = `<!doctype html>
     if (spinning || list.length === 0) return;
     if (!dateInput.value) { showErr("Pick a date to spin for."); return; }
     spinning = true;
-    var winnerIdx = randomInt(list.length);
-    var seg = (Math.PI * 2) / list.length;
-    // Segment centre must end at angle 0 (the pointer). Add jitter inside the segment.
+    var winnerIdx = weightedPick(list);
+    var angles = sliceAngles(list);
+    var seg = angles[winnerIdx + 1] - angles[winnerIdx];
+    // Slice centre must end at angle 0 (the pointer). Add jitter inside the slice.
     var jitter = (Math.random() - 0.5) * seg * 0.7;
-    var target = -(winnerIdx + 0.5) * seg + jitter;
+    var target = -(angles[winnerIdx] + seg / 2) + jitter;
     var TAU = Math.PI * 2;
     var base = rotation - (((rotation - target) % TAU) + TAU) % TAU;
     var end = base + TAU * (6 + Math.floor(Math.random() * 3));
     if (end <= rotation) end += TAU;
     var from = rotation, dur = 5200, t0 = performance.now();
-    var lastSeg = segmentAt(rotation, list.length);
+    var lastSeg = segmentAt(rotation, angles);
     audioCtx(); // Unlock audio inside the click or key gesture.
 
     function frame(now) {
@@ -395,7 +425,7 @@ export const PAGE = `<!doctype html>
       var e = 1 - Math.pow(1 - t, 4);
       rotation = from + (end - from) * e;
       draw();
-      var s = segmentAt(rotation, list.length);
+      var s = segmentAt(rotation, angles);
       if (s !== lastSeg) { lastSeg = s; playTick(); }
       if (t < 1) { requestAnimationFrame(frame); return; }
       rotation = rotation % TAU;
@@ -445,8 +475,16 @@ export const PAGE = `<!doctype html>
     var parts = [];
     if (warn) parts.push("Heads up: " + fmtDate(date) + " is not a standup day (Mon–Thu).");
     parts.push(current ? current.name + " already leads " + fmtDate(date) + "." : "No leader yet for " + fmtDate(date) + ".");
-    var left = entries().length;
-    parts.push(left + (left === 1 ? " person" : " people") + " left in this round.");
+    var list = entries();
+    var total = totalWeight(list);
+    var top = Math.max.apply(null, list.map(function (e) { return e.weight; }));
+    var best = list.filter(function (e) { return e.weight === top; });
+    if (best.length && best.length < list.length) {
+      parts.push("Best odds: " + best.map(function (e) { return e.name; }).join(", ") +
+        " (" + Math.round((best[0].weight / total) * 1000) / 10 + "% each).");
+    } else if (list.length) {
+      parts.push("Everyone has equal odds.");
+    }
     el.textContent = parts.join(" ");
   }
 
@@ -588,7 +626,7 @@ export const PAGE = `<!doctype html>
     renderSoundBtn();
     if (soundOn) playTick();
   });
-  // The round depends on the date, so redraw the wheel when the date changes.
+  // The weights depend on the date (a re-spin ignores that date's leader), so redraw when it changes.
   dateInput.addEventListener("change", function () {
     renderSpinStatus();
     draw();
