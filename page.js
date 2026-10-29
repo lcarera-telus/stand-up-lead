@@ -101,7 +101,7 @@ export const PAGE = `<!doctype html>
       </form>
       <div class="err" id="err"></div>
       <ul id="members"></ul>
-      <div class="hint">Uncheck anyone who is out that day to leave them off the wheel. The ✕ removes them from the team.</div>
+      <div class="hint">The wheel shows only the people who have led the fewest standups, so everyone leads once before anyone repeats. Uncheck anyone who is out that day to leave them off the wheel. The ✕ removes them from the team.</div>
     </div>
     <div class="panel">
       <h2>History</h2>
@@ -180,8 +180,30 @@ export const PAGE = `<!doctype html>
     });
   }
 
+  // Strict rotation: only people with the fewest leads go on the wheel,
+  // so everyone leads once before anyone repeats.
   function entries() {
-    return members.filter(function (m) { return !excluded[m.id]; });
+    var pool = members.filter(function (m) { return !excluded[m.id]; });
+    if (pool.length === 0) return pool;
+    var date = dateInput.value;
+    // A re-spin must not count the leader it may replace.
+    var current = date ? leaderOn(date) : null;
+    function leads(m) { return m.led_count - (current && current.member_id === m.id ? 1 : 0); }
+    var min = Math.min.apply(null, pool.map(leads));
+    var round = pool.filter(function (m) { return leads(m) === min; });
+    // When a new round starts, skip the previous leader so nobody leads twice in a row.
+    var prev = standups.filter(function (r) { return r.date < date; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; })[0];
+    if (prev && round.length > 1) {
+      round = round.filter(function (m) { return m.id !== prev.member_id; });
+    }
+    return round;
+  }
+
+  function randomInt(n) {
+    var buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return buf[0] % n;
   }
 
   function draw() {
@@ -355,7 +377,7 @@ export const PAGE = `<!doctype html>
     if (spinning || list.length === 0) return;
     if (!dateInput.value) { showErr("Pick a date to spin for."); return; }
     spinning = true;
-    var winnerIdx = Math.floor(Math.random() * list.length);
+    var winnerIdx = randomInt(list.length);
     var seg = (Math.PI * 2) / list.length;
     // Segment centre must end at angle 0 (the pointer). Add jitter inside the segment.
     var jitter = (Math.random() - 0.5) * seg * 0.7;
@@ -423,6 +445,8 @@ export const PAGE = `<!doctype html>
     var parts = [];
     if (warn) parts.push("Heads up: " + fmtDate(date) + " is not a standup day (Mon–Thu).");
     parts.push(current ? current.name + " already leads " + fmtDate(date) + "." : "No leader yet for " + fmtDate(date) + ".");
+    var left = entries().length;
+    parts.push(left + (left === 1 ? " person" : " people") + " left in this round.");
     el.textContent = parts.join(" ");
   }
 
@@ -525,6 +549,7 @@ export const PAGE = `<!doctype html>
     if (id) {
       if (ev.target.checked) delete excluded[id]; else excluded[id] = true;
       renderMembers();
+      renderSpinStatus();
       draw();
     }
   });
@@ -563,10 +588,15 @@ export const PAGE = `<!doctype html>
     renderSoundBtn();
     if (soundOn) playTick();
   });
-  dateInput.addEventListener("change", renderSpinStatus);
+  // The round depends on the date, so redraw the wheel when the date changes.
+  dateInput.addEventListener("change", function () {
+    renderSpinStatus();
+    draw();
+  });
   document.getElementById("nextDayBtn").addEventListener("click", function () {
     dateInput.value = nextStandupDay(todayISO());
     renderSpinStatus();
+    draw();
   });
   document.getElementById("respinBtn").addEventListener("click", function () {
     pending = null;
