@@ -1,4 +1,10 @@
 import { PAGE } from "./page.js";
+import { FAVICON_ICO, APPLE_TOUCH_PNG } from "./icons.js";
+
+const ICONS = {
+  "/favicon.ico": { b64: FAVICON_ICO, type: "image/x-icon" },
+  "/apple-touch-icon.png": { b64: APPLE_TOUCH_PNG, type: "image/png" },
+};
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -142,6 +148,13 @@ export default {
         console.error("api error", err?.message ?? err);
         return json({ error: "Internal error" }, 500);
       }
+    }
+    const icon = ICONS[url.pathname];
+    if (icon) {
+      const bytes = Uint8Array.from(atob(icon.b64), (c) => c.charCodeAt(0));
+      return new Response(bytes, {
+        headers: { "content-type": icon.type, "cache-control": "public, max-age=86400" },
+      });
     }
     if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/history") {
       return new Response(PAGE, {
