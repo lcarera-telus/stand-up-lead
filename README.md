@@ -32,7 +32,7 @@ The logic is in `entries()` in `page.js`.
 | `worker.js` | The Worker. It serves the page and the JSON API. |
 | `page.js` | The full HTML page as one string. The Worker serves it at `/` (wheel and team list) and `/history` (history). |
 | `favicon.ico` | The logo icon (16, 32 and 48 px). Gizmos also uses it as the app avatar. |
-| `icons.js` | `favicon.ico` and a 180 px `apple-touch-icon.png` as base64. The Worker serves them at `/favicon.ico` and `/apple-touch-icon.png`. |
+| `icons.js` | The Ewok wheel logo SVG, `favicon.ico` and a 180 px `apple-touch-icon.png` as base64. The Worker serves them at `/logo.svg`, `/favicon.ico` and `/apple-touch-icon.png`. The page uses `/logo.svg` as the header logo and the main favicon. |
 | `migrations/` | D1 schema and seed data. Gizmos applies them on each deploy. |
 | `wrangler.toml` | The app name and the `DB` D1 binding. |
 
