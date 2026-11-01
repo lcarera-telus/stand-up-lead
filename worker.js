@@ -1,7 +1,8 @@
 import { PAGE } from "./page.js";
-import { FAVICON_ICO, APPLE_TOUCH_PNG } from "./icons.js";
+import { LOGO_SVG, FAVICON_ICO, APPLE_TOUCH_PNG } from "./icons.js";
 
 const ICONS = {
+  "/logo.svg": { b64: LOGO_SVG, type: "image/svg+xml" },
   "/favicon.ico": { b64: FAVICON_ICO, type: "image/x-icon" },
   "/apple-touch-icon.png": { b64: APPLE_TOUCH_PNG, type: "image/png" },
 };

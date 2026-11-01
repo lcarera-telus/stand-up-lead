@@ -7,8 +7,9 @@ export const PAGE = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Standup Wheel</title>
-<link rel="icon" href="/favicon.ico?v=1" sizes="16x16 32x32 48x48">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
+<link rel="icon" href="/logo.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico?v=2" sizes="16x16 32x32 48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -29,6 +30,8 @@ export const PAGE = `<!doctype html>
   .history-page li .meta { min-width:150px; text-align:right; }
   #members { max-height:none; overflow:visible; }
   h1 { margin:0; font-size:26px; letter-spacing:.5px; }
+  .brand { display:flex; align-items:center; gap:14px; }
+  .brand .logo { width:56px; height:56px; flex:none; filter:drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
   h1 span { color:var(--accent); }
   .sub { color:var(--muted); margin-top:4px; }
   main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:24px; padding:20px 28px 40px; }
@@ -90,9 +93,12 @@ export const PAGE = `<!doctype html>
 </head>
 <body>
 <header>
-  <div>
-    <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
-    <div class="sub wheel-only">Click the wheel or press Ctrl+Enter to spin.</div>
+  <div class="brand">
+    <img class="logo" src="/logo.svg?v=2" alt="">
+    <div>
+      <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
+      <div class="sub wheel-only">Click the wheel or press Ctrl+Enter to spin.</div>
+    </div>
   </div>
   <nav>
     <a href="/" id="navWheel">Wheel</a>
