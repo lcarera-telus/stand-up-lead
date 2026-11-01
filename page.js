@@ -6,7 +6,7 @@ export const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EWW ASCENSUS · Standup Wheel</title>
+<title>Standup Wheel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -14,7 +14,18 @@ export const PAGE = `<!doctype html>
   * { box-sizing:border-box; }
   body { margin:0; font-family:Quicksand, system-ui, sans-serif; color:var(--text);
          background:radial-gradient(circle at 80% 0%, #4a2a14 0%, var(--bg) 55%); min-height:100vh; }
-  header { padding:20px 28px 0; }
+  header { padding:20px 28px 0; display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px; }
+  nav { display:flex; gap:6px; }
+  nav a { padding:7px 14px; border-radius:8px; border:1px solid var(--line); color:var(--muted); text-decoration:none; font-weight:700; }
+  nav a.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* One page, two views: the wheel at /, the history at /history. */
+  body.history-view main, body.history-view .wheel-only { display:none; }
+  body:not(.history-view) .history-page { display:none; }
+  .history-page { max-width:720px; margin:0 auto; padding:20px 28px 40px; }
+  .history-page ul { max-height:none; }
+  .history-page li .dot { width:12px; height:12px; border-radius:3px; flex:none; }
+  .history-page li .meta { min-width:150px; text-align:right; }
+  #members { max-height:none; overflow:visible; }
   h1 { margin:0; font-size:26px; letter-spacing:.5px; }
   h1 span { color:var(--accent); }
   .sub { color:var(--muted); margin-top:4px; }
@@ -77,8 +88,14 @@ export const PAGE = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
-  <div class="sub">Click the wheel or press Ctrl+Enter to spin.</div>
+  <div>
+    <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
+    <div class="sub wheel-only">Click the wheel or press Ctrl+Enter to spin.</div>
+  </div>
+  <nav>
+    <a href="/" id="navWheel">Wheel</a>
+    <a href="/history" id="navHistory">History</a>
+  </nav>
 </header>
 <main>
   <section class="wheel-wrap">
@@ -110,12 +127,14 @@ export const PAGE = `<!doctype html>
       <ul id="members"></ul>
       <div class="hint">Each person has a color on the wheel; click a color to change it. The percentage is their chance on the next spin: people who have led less get a bigger slice. Uncheck anyone who is out that day to leave them off the wheel. The ✕ removes them from the team.</div>
     </div>
-    <div class="panel">
-      <h2>History</h2>
-      <ul id="history"></ul>
-    </div>
   </aside>
 </main>
+<section class="history-page">
+  <div class="panel">
+    <h2>History (<span id="historyCount">0</span>)</h2>
+    <ul id="history"></ul>
+  </div>
+</section>
 
 <dialog id="winner">
   <canvas id="confetti" aria-hidden="true"></canvas>
@@ -135,6 +154,10 @@ export const PAGE = `<!doctype html>
 <script>
 (function () {
   var COLORS = ["#e8380d", "#c8170f", "#7a2318", "#f47b30", "#f6a93b", "#f5dc5a"];
+  // The worker serves this page at / and /history; the path picks the view.
+  var HISTORY_VIEW = location.pathname === "/history";
+  document.body.classList.toggle("history-view", HISTORY_VIEW);
+  document.getElementById(HISTORY_VIEW ? "navHistory" : "navWheel").className = "on";
   var canvas = document.getElementById("wheel");
   var ctx = canvas.getContext("2d");
   var members = [];
@@ -578,10 +601,12 @@ export const PAGE = `<!doctype html>
   function renderHistory(all) {
     var rows = all.filter(function (r) { return r.date <= todayISO(); });
     var ul = document.getElementById("history");
+    document.getElementById("historyCount").textContent = rows.length;
     if (rows.length === 0) { ul.innerHTML = '<li class="meta">No records yet.</li>'; }
     else {
       ul.innerHTML = rows.map(function (r) {
-        return '<li><span class="name">' + esc(r.name) + '</span>' +
+        return '<li><span class="dot" style="background:' + colorOf(r.member_id) + '"></span>' +
+          '<span class="name">' + esc(r.name) + '</span>' +
           '<span class="meta">' + fmtDate(r.date) + '</span>' +
           '<button class="x" data-undo="' + r.date + '" title="Delete record">✕</button></li>';
       }).join("");
@@ -593,7 +618,8 @@ export const PAGE = `<!doctype html>
   }
 
   function refresh() {
-    return Promise.all([api("GET", "/api/members"), api("GET", "/api/standups?limit=60")])
+    var limit = HISTORY_VIEW ? 365 : 60;
+    return Promise.all([api("GET", "/api/members"), api("GET", "/api/standups?limit=" + limit)])
       .then(function (res) {
         members = res[0];
         standups = res[1];
@@ -664,7 +690,7 @@ export const PAGE = `<!doctype html>
 
   canvas.addEventListener("click", spin);
   document.addEventListener("keydown", function (ev) {
-    if (ev.ctrlKey && ev.key === "Enter") spin();
+    if (ev.ctrlKey && ev.key === "Enter" && !HISTORY_VIEW) spin();
   });
   document.getElementById("keepBtn").addEventListener("click", function () {
     document.getElementById("winner").close();

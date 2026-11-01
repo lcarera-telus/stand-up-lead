@@ -30,7 +30,7 @@ The logic is in `entries()` in `page.js`.
 | File | Purpose |
 |---|---|
 | `worker.js` | The Worker. It serves the page and the JSON API. |
-| `page.js` | The full HTML page (wheel, team list, history) as one string. |
+| `page.js` | The full HTML page as one string. The Worker serves it at `/` (wheel and team list) and `/history` (history). |
 | `migrations/` | D1 schema and seed data. Gizmos applies them on each deploy. |
 | `wrangler.toml` | The app name and the `DB` D1 binding. |
 

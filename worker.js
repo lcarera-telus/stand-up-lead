@@ -143,7 +143,7 @@ export default {
         return json({ error: "Internal error" }, 500);
       }
     }
-    if (url.pathname === "/" || url.pathname === "/index.html") {
+    if (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/history") {
       return new Response(PAGE, {
         headers: { "content-type": "text/html; charset=utf-8" },
       });
