@@ -6,7 +6,7 @@ export const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EWW ASCENSUS · Standup Wheel</title>
+<title>Standup Wheel</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
 <style>
@@ -14,7 +14,18 @@ export const PAGE = `<!doctype html>
   * { box-sizing:border-box; }
   body { margin:0; font-family:Quicksand, system-ui, sans-serif; color:var(--text);
          background:radial-gradient(circle at 80% 0%, #4a2a14 0%, var(--bg) 55%); min-height:100vh; }
-  header { padding:20px 28px 0; }
+  header { padding:20px 28px 0; display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px; }
+  nav { display:flex; gap:6px; }
+  nav a { padding:7px 14px; border-radius:8px; border:1px solid var(--line); color:var(--muted); text-decoration:none; font-weight:700; }
+  nav a.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  /* One page, two views: the wheel at /, the history at /history. */
+  body.history-view main, body.history-view .wheel-only { display:none; }
+  body:not(.history-view) .history-page { display:none; }
+  .history-page { max-width:720px; margin:0 auto; padding:20px 28px 40px; }
+  .history-page ul { max-height:none; }
+  .history-page li .dot { width:12px; height:12px; border-radius:3px; flex:none; }
+  .history-page li .meta { min-width:150px; text-align:right; }
+  #members { max-height:none; overflow:visible; }
   h1 { margin:0; font-size:26px; letter-spacing:.5px; }
   h1 span { color:var(--accent); }
   .sub { color:var(--muted); margin-top:4px; }
@@ -50,6 +61,13 @@ export const PAGE = `<!doctype html>
   li:last-child { border-bottom:0; }
   li .name { flex:1; }
   li .meta { color:var(--muted); font-size:12px; }
+  li .swatch { width:22px; height:22px; padding:0; border:0; border-radius:5px; background:none; flex:none; cursor:pointer; }
+  li .swatch::-webkit-color-swatch-wrapper { padding:0; }
+  li .swatch::-webkit-color-swatch { border:0; border-radius:5px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.25); }
+  li .swatch::-moz-color-swatch { border:0; border-radius:5px; }
+  li .odds { font-weight:700; font-variant-numeric:tabular-nums; min-width:52px; text-align:right; }
+  li.off .swatch { opacity:.35; }
+  li.off .odds, li .odds.zero { color:var(--muted); font-weight:500; }
   li .x { background:none; border:0; color:var(--muted); padding:2px 6px; font-size:16px; }
   li .x:hover { color:#ff7b6b; }
   li.off .name { text-decoration:line-through; color:var(--muted); }
@@ -70,8 +88,14 @@ export const PAGE = `<!doctype html>
 </head>
 <body>
 <header>
-  <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
-  <div class="sub">Click the wheel or press Ctrl+Enter to spin.</div>
+  <div>
+    <h1><span>EWW ASCENSUS</span> · Who leads the standup?</h1>
+    <div class="sub wheel-only">Click the wheel or press Ctrl+Enter to spin.</div>
+  </div>
+  <nav>
+    <a href="/" id="navWheel">Wheel</a>
+    <a href="/history" id="navHistory">History</a>
+  </nav>
 </header>
 <main>
   <section class="wheel-wrap">
@@ -101,14 +125,16 @@ export const PAGE = `<!doctype html>
       </form>
       <div class="err" id="err"></div>
       <ul id="members"></ul>
-      <div class="hint">The wheel shows only the people who have led the fewest standups, so everyone leads once before anyone repeats. Uncheck anyone who is out that day to leave them off the wheel. The ✕ removes them from the team.</div>
-    </div>
-    <div class="panel">
-      <h2>History</h2>
-      <ul id="history"></ul>
+      <div class="hint">Each person has a color on the wheel; click a color to change it. The percentage is their chance on the next spin: people who have led less get a bigger slice. Uncheck anyone who is out that day to leave them off the wheel. The ✕ removes them from the team.</div>
     </div>
   </aside>
 </main>
+<section class="history-page">
+  <div class="panel">
+    <h2>History (<span id="historyCount">0</span>)</h2>
+    <ul id="history"></ul>
+  </div>
+</section>
 
 <dialog id="winner">
   <canvas id="confetti" aria-hidden="true"></canvas>
@@ -128,7 +154,10 @@ export const PAGE = `<!doctype html>
 <script>
 (function () {
   var COLORS = ["#e8380d", "#c8170f", "#7a2318", "#f47b30", "#f6a93b", "#f5dc5a"];
-  var DARK_TEXT = { "#f6a93b": 1, "#f5dc5a": 1, "#f47b30": 1, "#e8380d": 1 };
+  // The worker serves this page at / and /history; the path picks the view.
+  var HISTORY_VIEW = location.pathname === "/history";
+  document.body.classList.toggle("history-view", HISTORY_VIEW);
+  document.getElementById(HISTORY_VIEW ? "navHistory" : "navWheel").className = "on";
   var canvas = document.getElementById("wheel");
   var ctx = canvas.getContext("2d");
   var members = [];
@@ -180,8 +209,8 @@ export const PAGE = `<!doctype html>
     });
   }
 
-  // Weighted wheel: weight = (max leads - your leads) + 1, and the slice is weight / total.
-  // People who have led less get bigger slices.
+  // Weighted wheel: weight = ((max leads - your leads) + 1)^3, and the slice is weight / total.
+  // The cube makes the slice grow fast for people who have led less.
   function entries() {
     var pool = members.filter(function (m) { return !excluded[m.id]; });
     if (pool.length === 0) return pool;
@@ -191,7 +220,7 @@ export const PAGE = `<!doctype html>
     function leads(m) { return m.led_count - (current && current.member_id === m.id ? 1 : 0); }
     var max = Math.max.apply(null, pool.map(leads));
     var list = pool.map(function (m) {
-      return { id: m.id, name: m.name, leads: leads(m), weight: max - leads(m) + 1 };
+      return { id: m.id, name: m.name, leads: leads(m), weight: Math.pow(max - leads(m) + 1, 3) };
     });
     // Skip the previous leader so nobody leads twice in a row.
     var prev = standups.filter(function (r) { return r.date < date; })
@@ -214,6 +243,37 @@ export const PAGE = `<!doctype html>
       out.push((acc / total) * Math.PI * 2);
     }
     return out;
+  }
+
+  // Each person picks their color in the Team list; it is saved in the DB, so a slice
+  // too thin for a label still matches the list.
+  function colorOf(id) {
+    var m = members.filter(function (x) { return x.id === id; })[0];
+    return (m && m.color) || "#b0bec5";
+  }
+
+  // Dark text on light colors, light text on dark colors.
+  function textOn(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    var lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+    return lum > 0.55 ? "#2a1a12" : "#fff3ea";
+  }
+
+  // Biggest label that fits its slice, or null. The text runs from the rim (R - 30) toward
+  // the centre, and the slice is thinnest at the inner end, so the check is made there.
+  // A slice under 4% of the wheel, or too thin for 24px text, shows no name;
+  // the Team list color identifies it.
+  function sliceLabel(name, seg, R, maxSize) {
+    if (seg < 0.04 * Math.PI * 2) return null;
+    for (var size = Math.min(44, maxSize); size >= 24; size -= 2) {
+      ctx.font = "500 " + size + "px Quicksand";
+      var text = name;
+      while (ctx.measureText(text).width > R - 140 && text.length > 3) text = text.slice(0, -2);
+      if (text !== name) text = text + "…";
+      var inner = R - 30 - ctx.measureText(text).width;
+      if (seg * inner >= size) return { text: text, size: size };
+    }
+    return null;
   }
 
   function randomInt(n) {
@@ -239,9 +299,7 @@ export const PAGE = `<!doctype html>
     for (var i = 0; i < list.length; i++) {
       var start = rotation + angles[i];
       var seg = angles[i + 1] - angles[i];
-      var color = COLORS[i % COLORS.length];
-      // Avoid two equal colors next to each other when the wheel wraps around.
-      if (i === list.length - 1 && i % COLORS.length === 0 && i > 0) color = COLORS[2];
+      var color = colorOf(list[i].id);
       ctx.beginPath();
       ctx.moveTo(C, C);
       ctx.arc(C, C, R, start, start + seg);
@@ -255,15 +313,12 @@ export const PAGE = `<!doctype html>
       ctx.rotate(start + seg / 2);
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = DARK_TEXT[color] ? "#2a1a12" : "#fff3ea";
-      // Keep the label inside its slice; thin slices get smaller text.
-      var size = Math.max(14, Math.min(44, 520 / list.length + 14, seg * (R - 30) * 0.75));
-      ctx.font = "500 " + size + "px Quicksand";
-      var label = list[i].name;
-      var maxW = R - 140;
-      while (ctx.measureText(label).width > maxW && label.length > 3) label = label.slice(0, -2);
-      if (label !== list[i].name) label = label + "…";
-      ctx.fillText(label, R - 30, 0);
+      ctx.fillStyle = textOn(color);
+      var label = sliceLabel(list[i].name, seg, R, 520 / list.length + 14);
+      if (label) {
+        ctx.font = "500 " + label.size + "px Quicksand";
+        ctx.fillText(label.text, R - 30, 0);
+      }
       ctx.restore();
     }
 
@@ -523,13 +578,22 @@ export const PAGE = `<!doctype html>
   function renderMembers() {
     document.getElementById("count").textContent = members.length;
     var ul = document.getElementById("members");
+    // Chance on the next spin for the selected date, from the same weights as the wheel.
+    var list = entries(), total = totalWeight(list), odds = {};
+    list.forEach(function (e) { odds[e.id] = e.weight / total; });
     ul.innerHTML = members.map(function (m) {
       var meta = m.led_count > 0
         ? m.led_count + "× · last " + fmtDate(m.last_led)
         : "never led";
+      var chance;
+      if (excluded[m.id]) chance = '<span class="odds" title="Not on the wheel">off</span>';
+      else if (odds[m.id] === undefined) chance = '<span class="odds zero" title="Led the previous standup">0%</span>';
+      else chance = '<span class="odds" title="Chance on the next spin">' + Math.round(odds[m.id] * 1000) / 10 + '%</span>';
       return '<li class="' + (excluded[m.id] ? "off" : "") + '">' +
         '<input type="checkbox" data-id="' + m.id + '"' + (excluded[m.id] ? "" : " checked") + ' title="Include in the wheel">' +
+        '<input type="color" class="swatch" data-color="' + m.id + '" value="' + colorOf(m.id) + '" title="Pick your wheel color">' +
         '<span class="name">' + esc(m.name) + '<br><span class="meta">' + meta + '</span></span>' +
+        chance +
         '<button class="x" data-del="' + m.id + '" title="Remove from team">✕</button></li>';
     }).join("");
   }
@@ -537,10 +601,12 @@ export const PAGE = `<!doctype html>
   function renderHistory(all) {
     var rows = all.filter(function (r) { return r.date <= todayISO(); });
     var ul = document.getElementById("history");
+    document.getElementById("historyCount").textContent = rows.length;
     if (rows.length === 0) { ul.innerHTML = '<li class="meta">No records yet.</li>'; }
     else {
       ul.innerHTML = rows.map(function (r) {
-        return '<li><span class="name">' + esc(r.name) + '</span>' +
+        return '<li><span class="dot" style="background:' + colorOf(r.member_id) + '"></span>' +
+          '<span class="name">' + esc(r.name) + '</span>' +
           '<span class="meta">' + fmtDate(r.date) + '</span>' +
           '<button class="x" data-undo="' + r.date + '" title="Delete record">✕</button></li>';
       }).join("");
@@ -552,7 +618,8 @@ export const PAGE = `<!doctype html>
   }
 
   function refresh() {
-    return Promise.all([api("GET", "/api/members"), api("GET", "/api/standups?limit=60")])
+    var limit = HISTORY_VIEW ? 365 : 60;
+    return Promise.all([api("GET", "/api/members"), api("GET", "/api/standups?limit=" + limit)])
       .then(function (res) {
         members = res[0];
         standups = res[1];
@@ -592,6 +659,24 @@ export const PAGE = `<!doctype html>
     }
   });
 
+  // Preview the color on the wheel while the picker is open, and save it when it closes.
+  function memberOf(ev) {
+    var id = ev.target.getAttribute("data-color");
+    return id ? members.filter(function (x) { return String(x.id) === id; })[0] : null;
+  }
+  document.getElementById("members").addEventListener("input", function (ev) {
+    var m = memberOf(ev);
+    if (!m) return;
+    m.color = ev.target.value;
+    draw();
+  });
+  document.getElementById("members").addEventListener("change", function (ev) {
+    var m = memberOf(ev);
+    if (!m) return;
+    api("PATCH", "/api/members/" + m.id, { color: ev.target.value })
+      .catch(function (e) { showErr(e.message); refresh(); });
+  });
+
   function onUndoClick(ev) {
     var date = ev.target.getAttribute("data-undo");
     if (!date) return;
@@ -605,7 +690,7 @@ export const PAGE = `<!doctype html>
 
   canvas.addEventListener("click", spin);
   document.addEventListener("keydown", function (ev) {
-    if (ev.ctrlKey && ev.key === "Enter") spin();
+    if (ev.ctrlKey && ev.key === "Enter" && !HISTORY_VIEW) spin();
   });
   document.getElementById("keepBtn").addEventListener("click", function () {
     document.getElementById("winner").close();
@@ -628,11 +713,13 @@ export const PAGE = `<!doctype html>
   });
   // The weights depend on the date (a re-spin ignores that date's leader), so redraw when it changes.
   dateInput.addEventListener("change", function () {
+    renderMembers();
     renderSpinStatus();
     draw();
   });
   document.getElementById("nextDayBtn").addEventListener("click", function () {
     dateInput.value = nextStandupDay(todayISO());
+    renderMembers();
     renderSpinStatus();
     draw();
   });

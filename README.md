@@ -9,16 +9,17 @@ The app runs on [Gizmos](https://gizmos.run) at <https://eww-standup-wheel.telus
 The wheel gives everyone a slice sized by how far behind the top leader they are:
 
 ```
-weight = (max led count - your led count) + 1
+weight = ((max led count - your led count) + 1)^3
 slice  = your weight / sum of all weights
 ```
 
-1. Everyone has a base weight of 1. Each lead fewer than the top person adds 1 more.
+1. The people with the most leads have weight 1. One lead fewer gives weight 8, two fewer give 27, three fewer give 64.
 2. On day 0 everyone has the same weight, so the slices are equal.
 3. When someone leads, their slice shrinks and everyone else's slice grows.
-4. The previous leader is left off the wheel for the next spin. Nobody leads two standups in a row.
-5. A re-spin for a date that already has a leader does not count that leader's lead for that date.
-6. The draw uses `crypto.getRandomValues`, weighted by slice size.
+4. Each person has a color. Click the color next to a name in the Team list to change it; the database keeps it. A new person gets a random color that nobody else uses. The Team list also shows the chance on the next spin. A slice too thin for its name shows no label, so use the color to find it.
+5. The previous leader is left off the wheel for the next spin. Nobody leads two standups in a row.
+6. A re-spin for a date that already has a leader does not count that leader's lead for that date.
+7. The draw uses `crypto.getRandomValues`, weighted by slice size.
 
 Uncheck a person in the Team list to leave them off the wheel for that day. Their count does not change.
 
@@ -29,7 +30,7 @@ The logic is in `entries()` in `page.js`.
 | File | Purpose |
 |---|---|
 | `worker.js` | The Worker. It serves the page and the JSON API. |
-| `page.js` | The full HTML page (wheel, team list, history) as one string. |
+| `page.js` | The full HTML page as one string. The Worker serves it at `/` (wheel and team list) and `/history` (history). |
 | `migrations/` | D1 schema and seed data. Gizmos applies them on each deploy. |
 | `wrangler.toml` | The app name and the `DB` D1 binding. |
 
@@ -41,6 +42,7 @@ There is no build step and there are no dependencies.
 |---|---|
 | `GET /api/members` | Active members, with `led_count` and `last_led` |
 | `POST /api/members` | Add a member. Body: `{ "name": "..." }` |
+| `PATCH /api/members/:id` | Change a member's wheel color. Body: `{ "color": "#a1b2c3" }` |
 | `DELETE /api/members/:id` | Remove a member (soft delete, the history stays) |
 | `GET /api/standups?limit=30` | Latest standup records |
 | `POST /api/standups` | Save the leader for a date. Body: `{ "date": "YYYY-MM-DD", "member_id": 1 }` |
@@ -48,7 +50,7 @@ There is no build step and there are no dependencies.
 
 ### Database
 
-- `members`: `id`, `name`, `active`, `created_at`
+- `members`: `id`, `name`, `active`, `created_at`, `color` (hex, for example `#e8380d`)
 - `standups`: one row for each date (`date` is the primary key), with `member_id`
 
 ## Run it locally
