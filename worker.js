@@ -7,11 +7,26 @@ const json = (data, status = 200) =>
   });
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const COLOR_RE = /^#[0-9a-f]{6}$/;
+
+// Same palette as migrations/0003_member_color.sql.
+const PALETTE = ["#e8380d", "#f6a93b", "#f5dc5a", "#8bc34a", "#26a69a", "#29b6f6",
+  "#3f6fd8", "#7e57c2", "#d81b9a", "#ff8a80", "#8d6e63", "#b0bec5"];
+
+// A random palette color nobody on the team uses yet, or any random color when all are taken.
+async function randomColor(db) {
+  const { results } = await db.prepare("SELECT color FROM members WHERE active = 1").all();
+  const used = new Set(results.map((r) => r.color));
+  const free = PALETTE.filter((c) => !used.has(c));
+  const n = crypto.getRandomValues(new Uint32Array(1))[0];
+  if (free.length) return free[n % free.length];
+  return "#" + (n & 0xffffff).toString(16).padStart(6, "0");
+}
 
 async function listMembers(db) {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.name,
+      `SELECT m.id, m.name, m.color,
               COUNT(s.date) AS led_count,
               MAX(s.date)   AS last_led
          FROM members m
@@ -54,8 +69,23 @@ async function handleApi(req, env, url) {
         .bind(name)
         .first();
       if (dup) return json({ error: "That person is already on the team" }, 409);
-      await db.prepare("INSERT INTO members (name) VALUES (?)").bind(name).run();
+      await db
+        .prepare("INSERT INTO members (name, color) VALUES (?, ?)")
+        .bind(name, await randomColor(db))
+        .run();
       return json(await listMembers(db), 201);
+    }
+
+    if (req.method === "PATCH" && id) {
+      const body = await req.json().catch(() => ({}));
+      const color = String(body.color ?? "").toLowerCase();
+      if (!COLOR_RE.test(color)) return json({ error: "Color must look like #a1b2c3" }, 400);
+      const { meta } = await db
+        .prepare("UPDATE members SET color = ? WHERE id = ? AND active = 1")
+        .bind(color, Number(id))
+        .run();
+      if (!meta.changes) return json({ error: "Member not found" }, 404);
+      return json(await listMembers(db));
     }
 
     if (req.method === "DELETE" && id) {
