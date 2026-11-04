@@ -33,7 +33,7 @@ async function randomColor(db) {
 async function listMembers(db) {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.name, m.color,
+      `SELECT m.id, m.name, m.color, m.starting_leads,
               COUNT(s.date) AS led_count,
               MAX(s.date)   AS last_led
          FROM members m
@@ -44,6 +44,18 @@ async function listMembers(db) {
     )
     .all();
   return results;
+}
+
+// Average of starting_leads + led_count across the active team, or 0 when nobody is on it.
+async function averageLeads(db) {
+  const row = await db
+    .prepare(
+      `SELECT AVG(m.starting_leads + (SELECT COUNT(*) FROM standups s WHERE s.member_id = m.id)) AS avg
+         FROM members m
+        WHERE m.active = 1`
+    )
+    .first();
+  return row?.avg ?? 0;
 }
 
 async function listStandups(db, limit) {
@@ -76,9 +88,25 @@ async function handleApi(req, env, url) {
         .bind(name)
         .first();
       if (dup) return json({ error: "That person is already on the team" }, 409);
+      // Someone who was removed and comes back gets their old row (and history) again.
+      const old = await db
+        .prepare("SELECT id, color FROM members WHERE active = 0 AND name = ? COLLATE NOCASE ORDER BY id DESC")
+        .bind(name)
+        .first();
+      if (old) {
+        const taken = await db
+          .prepare("SELECT 1 FROM members WHERE active = 1 AND color = ?")
+          .bind(old.color)
+          .first();
+        await db
+          .prepare("UPDATE members SET active = 1, color = ? WHERE id = ?")
+          .bind(taken || !old.color ? await randomColor(db) : old.color, old.id)
+          .run();
+        return json(await listMembers(db), 201);
+      }
       await db
-        .prepare("INSERT INTO members (name, color) VALUES (?, ?)")
-        .bind(name, await randomColor(db))
+        .prepare("INSERT INTO members (name, color, starting_leads) VALUES (?, ?, ?)")
+        .bind(name, await randomColor(db), await averageLeads(db))
         .run();
       return json(await listMembers(db), 201);
     }

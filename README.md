@@ -9,17 +9,20 @@ The app runs on [Gizmos](https://gizmos.run) at <https://eww-standup-wheel.telus
 The wheel gives everyone a slice sized by how far behind the top leader they are:
 
 ```
-weight = ((max led count - your led count) + 1)^3
-slice  = your weight / sum of all weights
+counts as = starting count + led count
+weight    = ((max counts as - your counts as) + 1)^3
+slice     = your weight / sum of all weights
 ```
 
 1. The people with the most leads have weight 1. One lead fewer gives weight 8, two fewer give 27, three fewer give 64.
 2. On day 0 everyone has the same weight, so the slices are equal.
 3. When someone leads, their slice shrinks and everyone else's slice grows.
-4. Each person has a color. Click the color next to a name in the Team list to change it; the database keeps it. A new person gets a random color that nobody else uses. The Team list also shows the chance on the next spin. A slice too thin for its name shows no label, so use the color to find it.
-5. The previous leader is left off the wheel for the next spin. Nobody leads two standups in a row.
-6. A re-spin for a date that already has a leader does not count that leader's lead for that date.
-7. The draw uses `crypto.getRandomValues`, weighted by slice size.
+4. A new person's starting count is the team's average at the time they join (all active members, decimals allowed), so they don't get the biggest slice right away. The Team list shows their real count with the adjusted one in brackets, for example "never led (counts as 3.1)". Existing members start at 0.
+5. If you add back someone who was removed, with the same name (case doesn't matter), the app restores their old record: their history and starting count come back.
+6. Each person has a color. Click the color next to a name in the Team list to change it; the database keeps it. A new person gets a random color that nobody else uses. The Team list also shows the chance on the next spin. A slice too thin for its name shows no label, so use the color to find it.
+7. The previous leader is left off the wheel for the next spin. Nobody leads two standups in a row.
+8. A re-spin for a date that already has a leader does not count that leader's lead for that date.
+9. The draw uses `crypto.getRandomValues`, weighted by slice size.
 
 Uncheck a person in the Team list to leave them off the wheel for that day. Their count does not change.
 
@@ -42,8 +45,8 @@ There is no build step and there are no dependencies.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/members` | Active members, with `led_count` and `last_led` |
-| `POST /api/members` | Add a member. Body: `{ "name": "..." }` |
+| `GET /api/members` | Active members, with `starting_leads`, `led_count` and `last_led` |
+| `POST /api/members` | Add a member, or restore a removed member with the same name. Body: `{ "name": "..." }` |
 | `PATCH /api/members/:id` | Change a member's wheel color. Body: `{ "color": "#a1b2c3" }` |
 | `DELETE /api/members/:id` | Remove a member (soft delete, the history stays) |
 | `GET /api/standups?limit=30` | Latest standup records |
@@ -52,7 +55,7 @@ There is no build step and there are no dependencies.
 
 ### Database
 
-- `members`: `id`, `name`, `active`, `created_at`, `color` (hex, for example `#e8380d`)
+- `members`: `id`, `name`, `active`, `created_at`, `color` (hex, for example `#e8380d`), `starting_leads` (the team average when they joined, 0 for the original team)
 - `standups`: one row for each date (`date` is the primary key), with `member_id`
 
 ## Run it locally

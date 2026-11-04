@@ -225,7 +225,8 @@ export const PAGE = `<!doctype html>
     var date = dateInput.value;
     // A re-spin must not count the leader it may replace.
     var current = date ? leaderOn(date) : null;
-    function leads(m) { return m.led_count - (current && current.member_id === m.id ? 1 : 0); }
+    // A new member's starting count (the team average when they joined) counts as leads.
+    function leads(m) { return countsAs(m) - (current && current.member_id === m.id ? 1 : 0); }
     var max = Math.max.apply(null, pool.map(leads));
     var list = pool.map(function (m) {
       return { id: m.id, name: m.name, leads: leads(m), weight: Math.pow(max - leads(m) + 1, 3) };
@@ -238,6 +239,8 @@ export const PAGE = `<!doctype html>
     }
     return list;
   }
+
+  function countsAs(m) { return (m.starting_leads || 0) + m.led_count; }
 
   function totalWeight(list) {
     return list.reduce(function (sum, e) { return sum + e.weight; }, 0);
@@ -284,10 +287,11 @@ export const PAGE = `<!doctype html>
     return null;
   }
 
-  function randomInt(n) {
+  // A random number in [0, 1).
+  function randomFraction() {
     var buf = new Uint32Array(1);
     crypto.getRandomValues(buf);
-    return buf[0] % n;
+    return buf[0] / 4294967296;
   }
 
   function draw() {
@@ -401,9 +405,9 @@ export const PAGE = `<!doctype html>
     return angles.length - 2;
   }
 
-  // Weights are whole numbers, so a uniform draw over the total picks a slice by its weight.
+  // A uniform draw over the total picks a slice by its weight. Weights can be decimals.
   function weightedPick(list) {
-    var r = randomInt(totalWeight(list));
+    var r = randomFraction() * totalWeight(list);
     for (var i = 0; i < list.length; i++) {
       r -= list[i].weight;
       if (r < 0) return i;
@@ -593,6 +597,7 @@ export const PAGE = `<!doctype html>
       var meta = m.led_count > 0
         ? m.led_count + "× · last " + fmtDate(m.last_led)
         : "never led";
+      if (m.starting_leads > 0) meta += " (counts as " + Math.round(countsAs(m) * 10) / 10 + ")";
       var chance;
       if (excluded[m.id]) chance = '<span class="odds" title="Not on the wheel">off</span>';
       else if (odds[m.id] === undefined) chance = '<span class="odds zero" title="Led the previous standup">0%</span>';
