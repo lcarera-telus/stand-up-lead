@@ -9,4 +9,4 @@ binding = "DB"
 vars = { SLACK_WEBHOOK_URL = "" }
 
 [env.development]
-vars = { SLACK_WEBHOOK_URL = "" }
+vars = { SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/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" }
