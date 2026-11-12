@@ -59,13 +59,22 @@ async function listStandups(db, limit) {
   return results;
 }
 
+function parseISO(iso) {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatDateForSlack(isoDate) {
+  const dateObj = parseISO(isoDate);
+  const dayName = dateObj.toLocaleDateString("en-US", { weekday: "short" });
+  const monthDay = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${dayName}, ${monthDay}`;
+}
+
 async function notifySlack(webhookUrl, member, date) {
   if (!webhookUrl) return;
   try {
-    const dateObj = new Date(date + "T00:00:00Z");
-    const dayName = dateObj.toLocaleDateString("en-US", { weekday: "short" });
-    const monthDay = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const dateStr = `${dayName}, ${monthDay}`;
+    const dateStr = formatDateForSlack(date);
     const mention = member.slack_user_id ? `<@${member.slack_user_id}>` : member.name;
     const text = `🎯 ${mention} leads standup on ${dateStr}`;
     const resp = await fetch(webhookUrl, {
