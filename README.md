@@ -164,16 +164,15 @@ Add the webhook URL to your deployment environment:
 
 **For local development:**
 
-- In `wrangler.toml`, update the `[env.development]` section:
+- Create a `.env.local` file in the project root. It's already git-ignored.
 
-```toml
-[env.development]
-vars = { SLACK_WEBHOOK_URL = "your-webhook-url-here" }
+```sh
+SLACK_WEBHOOK_URL="your-webhook-url-here"
 ```
 
-- Run `npx wrangler dev --env development`
+- Run `npx wrangler dev`. Wrangler loads `.env.local` automatically. If your Wrangler version doesn't, name the file `.dev.vars` instead (also git-ignored).
 
-**Important:** Don't commit the webhook URL to version control. Use git to ignore it or use Gizmos environment variables for production instead of checking credentials into the repo.
+**Important:** Never put the webhook URL in `wrangler.toml` or any other committed file. Anyone with the URL can post to the channel. Use `.env.local` locally and the Gizmos environment variable in production.
 
 #### 4. (Optional) Map Slack User IDs for @mentions
 
