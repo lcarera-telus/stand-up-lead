@@ -81,7 +81,7 @@ async function notifySlack(webhookUrl, member, date) {
   }
 }
 
-async function handleApi(req, env, url) {
+async function handleApi(req, env, url, ctx) {
   const db = env.DB;
   const parts = url.pathname.split("/").filter(Boolean); // ["api", resource, id?]
   const [, resource, id] = parts;
@@ -165,7 +165,7 @@ async function handleApi(req, env, url) {
         )
         .bind(date, memberId)
         .run();
-      notifySlack(env.SLACK_WEBHOOK_URL, member, date);
+      ctx.waitUntil(notifySlack(env.SLACK_WEBHOOK_URL, member, date));
       return json({ ok: true }, 201);
     }
 
@@ -180,11 +180,11 @@ async function handleApi(req, env, url) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/api/")) {
       try {
-        return await handleApi(req, env, url);
+        return await handleApi(req, env, url, ctx);
       } catch (err) {
         console.error("api error", err?.message ?? err);
         return json({ error: "Internal error" }, 500);
