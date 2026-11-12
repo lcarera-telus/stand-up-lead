@@ -42,9 +42,9 @@ There is no build step and there are no dependencies.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/members` | Active members, with `led_count` and `last_led` |
+| `GET /api/members` | Active members, with `led_count`, `last_led`, and `slack_user_id` |
 | `POST /api/members` | Add a member. Body: `{ "name": "..." }` |
-| `PATCH /api/members/:id` | Change a member's wheel color. Body: `{ "color": "#a1b2c3" }` |
+| `PATCH /api/members/:id` | Change a member's wheel color or Slack user ID. Body: `{ "color": "#a1b2c3" }` or `{ "slack_user_id": "U12345ABC" }` |
 | `DELETE /api/members/:id` | Remove a member (soft delete, the history stays) |
 | `GET /api/standups?limit=30` | Latest standup records |
 | `POST /api/standups` | Save the leader for a date. Body: `{ "date": "YYYY-MM-DD", "member_id": 1 }` |
@@ -52,7 +52,7 @@ There is no build step and there are no dependencies.
 
 ### Database
 
-- `members`: `id`, `name`, `active`, `created_at`, `color` (hex, for example `#e8380d`)
+- `members`: `id`, `name`, `active`, `created_at`, `color` (hex, for example `#e8380d`), `slack_user_id` (optional, for @mentions in Slack)
 - `standups`: one row for each date (`date` is the primary key), with `member_id`
 
 ## Run it locally
@@ -128,3 +128,76 @@ gizmos logs eww-standup-wheel --since 1h --level error     # server logs
 ```
 
 Make a backup with `gizmos db export` before you change data by hand.
+
+## Slack Integration
+
+When configured, the wheel automatically posts a message to Slack whenever a new leader is selected. The message includes the member's name, the date they're selected for, and @mentions them if their Slack user ID is mapped.
+
+### Setup
+
+#### 1. Create a Slack App
+
+1. Go to <https://api.slack.com/apps>
+2. Click **Create New App** → **From scratch**
+3. App name: `Standup Wheel` (or your preferred name)
+4. Select your workspace
+5. Click **Create App**
+
+#### 2. Enable Incoming Webhooks
+
+1. In your app settings, go to **Incoming Webhooks**
+2. Toggle **Activate Incoming Webhooks** to **On**
+3. Click **Add New Webhook to Workspace**
+4. Select the channel where you want standup notifications (e.g., `#standups` or `#engineering`)
+5. Click **Allow**
+6. Copy the **Webhook URL** (it looks like `https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`)
+
+#### 3. Configure the Webhook URL
+
+Add the webhook URL to your deployment environment:
+
+**For Gizmos:**
+
+- In the Gizmos hub, go to the `eww-standup-wheel` app settings
+- Add an environment variable: `SLACK_WEBHOOK_URL` with your webhook URL
+- Redeploy the app
+
+**For local development:**
+
+- In `wrangler.toml`, update the `[env.development]` section:
+
+```toml
+[env.development]
+vars = { SLACK_WEBHOOK_URL = "your-webhook-url-here" }
+```
+
+- Run `npx wrangler dev --env development`
+
+**Important:** Don't commit the webhook URL to version control. Use git to ignore it or use Gizmos environment variables for production instead of checking credentials into the repo.
+
+#### 4. (Optional) Map Slack User IDs for @mentions
+
+To have team members @mentioned in Slack when selected:
+
+1. Find each member's Slack user ID:
+   - Right-click their name in Slack → **View member details** → copy the User ID (looks like `U12345ABC`)
+   - Or ask your Slack admin for the ID
+
+2. Set the `slack_user_id` for each member via the API:
+
+```bash
+curl -X PATCH https://eww-standup-wheel.telus.gizmos.run/api/members/1 \
+  -H "Content-Type: application/json" \
+  -d '{ "slack_user_id": "U12345ABC" }'
+```
+
+Replace `1` with the member's ID from `GET /api/members` and `U12345ABC` with their actual Slack user ID.
+
+3. Members without a `slack_user_id` will still be mentioned by name in the Slack message.
+
+### Message Format
+
+- **With Slack user ID:** `🎯 <@U12345ABC> leads standup on Mon, Nov 10`
+- **Without Slack user ID:** `🎯 John Doe leads standup on Mon, Nov 10`
+
+If the webhook URL is not configured, the wheel works normally with no Slack notifications.

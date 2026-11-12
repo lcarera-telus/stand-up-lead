@@ -33,7 +33,7 @@ async function randomColor(db) {
 async function listMembers(db) {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.name, m.color,
+      `SELECT m.id, m.name, m.color, m.slack_user_id,
               COUNT(s.date) AS led_count,
               MAX(s.date)   AS last_led
          FROM members m
@@ -57,6 +57,28 @@ async function listStandups(db, limit) {
     .bind(limit)
     .all();
   return results;
+}
+
+async function notifySlack(webhookUrl, member, date) {
+  if (!webhookUrl) return;
+  try {
+    const dateObj = new Date(date + "T00:00:00Z");
+    const dayName = dateObj.toLocaleDateString("en-US", { weekday: "short" });
+    const monthDay = dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const dateStr = `${dayName}, ${monthDay}`;
+    const mention = member.slack_user_id ? `<@${member.slack_user_id}>` : member.name;
+    const text = `🎯 ${mention} leads standup on ${dateStr}`;
+    const resp = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!resp.ok) {
+      console.error("Slack notification failed", { status: resp.status, date, memberId: member.id });
+    }
+  } catch (err) {
+    console.error("Slack notification error", { error: err?.message ?? err, date, memberId: member.id });
+  }
 }
 
 async function handleApi(req, env, url) {
@@ -85,11 +107,28 @@ async function handleApi(req, env, url) {
 
     if (req.method === "PATCH" && id) {
       const body = await req.json().catch(() => ({}));
-      const color = String(body.color ?? "").toLowerCase();
-      if (!COLOR_RE.test(color)) return json({ error: "Color must look like #a1b2c3" }, 400);
+      const updates = [];
+      const values = [];
+
+      if (body.color !== undefined) {
+        const color = String(body.color).toLowerCase();
+        if (!COLOR_RE.test(color)) return json({ error: "Color must look like #a1b2c3" }, 400);
+        updates.push("color = ?");
+        values.push(color);
+      }
+
+      if (body.slack_user_id !== undefined) {
+        const slackUserId = String(body.slack_user_id ?? "").trim() || null;
+        updates.push("slack_user_id = ?");
+        values.push(slackUserId);
+      }
+
+      if (!updates.length) return json({ error: "No fields to update" }, 400);
+
+      values.push(Number(id));
       const { meta } = await db
-        .prepare("UPDATE members SET color = ? WHERE id = ? AND active = 1")
-        .bind(color, Number(id))
+        .prepare(`UPDATE members SET ${updates.join(", ")} WHERE id = ? AND active = 1`)
+        .bind(...values)
         .run();
       if (!meta.changes) return json({ error: "Member not found" }, 404);
       return json(await listMembers(db));
@@ -114,7 +153,7 @@ async function handleApi(req, env, url) {
       const memberId = Number(body.member_id);
       if (!DATE_RE.test(date)) return json({ error: "Invalid date" }, 400);
       const member = await db
-        .prepare("SELECT id FROM members WHERE id = ? AND active = 1")
+        .prepare("SELECT id, name, slack_user_id FROM members WHERE id = ? AND active = 1")
         .bind(memberId)
         .first();
       if (!member) return json({ error: "Member not found" }, 404);
@@ -126,6 +165,7 @@ async function handleApi(req, env, url) {
         )
         .bind(date, memberId)
         .run();
+      notifySlack(env.SLACK_WEBHOOK_URL, member, date);
       return json({ ok: true }, 201);
     }
 

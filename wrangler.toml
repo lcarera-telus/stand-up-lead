@@ -4,3 +4,9 @@ compatibility_date = "2025-09-01"
 
 [[d1_databases]]
 binding = "DB"
+
+[env.production]
+vars = { SLACK_WEBHOOK_URL = "" }
+
+[env.development]
+vars = { SLACK_WEBHOOK_URL = "" }
